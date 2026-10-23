@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quizly – Interactive Quiz</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>tailwind.config={darkMode:'class'}</script>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{background:#f1f5f9;min-height:100vh;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+html.dark body{background:#0f172a}
+.seg{transition:background-color .3s}
+.opt{transition:all .2s}
+@keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.shake{animation:shake .3s}
+</style>
+</head>
+<body class="text-slate-800 dark:text-slate-100">
+<main class="max-w-2xl mx-auto p-4 sm:p-6">
+  <header class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-bold">Quizly <span class="text-indigo-500">⚡</span></h1>
+    <button id="theme" class="px-3 py-2 rounded-lg bg-white dark:bg-slate-800 shadow text-sm" aria-label="Toggle dark mode">🌙</button>
+  </header>
+
+  <section id="start" class="bg-white dark:bg-slate-800 rounded-2xl shadow p-6 text-center">
+    <h2 class="text-xl font-semibold mb-2">Ready to test your knowledge?</h2>
+    <p class="text-slate-500 dark:text-slate-400 mb-6">5 random questions · 20 seconds each · instant feedback</p>
+    <button id="go" class="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">Start Quiz</button>
+  </section>
+
+  <section id="quiz" class="hidden bg-white dark:bg-slate-800 rounded-2xl shadow p-5 sm:p-6">
+    <div class="flex gap-1.5 mb-3" id="bar" aria-label="Progress"></div>
+    <div class="flex justify-between items-center text-sm mb-4">
+      <span id="count" class="text-slate-500 dark:text-slate-400"></span>
+      <span id="time" class="font-mono font-bold px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200"></span>
+    </div>
+    <div class="h-1.5 rounded bg-slate-200 dark:bg-slate-700 mb-5 overflow-hidden"><div id="tbar" class="h-full bg-indigo-500" style="width:100%"></div></div>
+    <h2 id="q" class="text-lg sm:text-xl font-semibold mb-4"></h2>
+    <div id="opts" class="grid gap-3"></div>
+    <p id="msg" class="mt-4 text-sm font-medium min-h-5"></p>
+    <button id="next" class="hidden mt-3 w-full sm:w-auto px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">Next →</button>
+  </section>
+
+  <section id="result" class="hidden bg-white dark:bg-slate-800 rounded-2xl shadow p-6">
+    <h2 class="text-xl font-semibold text-center">Your Results</h2>
+    <p id="score" class="text-5xl font-extrabold text-center text-indigo-500 my-3"></p>
+    <p id="verdict" class="text-center text-slate-500 dark:text-slate-400 mb-5"></p>
+    <div id="review" class="space-y-3 mb-6"></div>
+    <div class="flex flex-col sm:flex-row gap-3">
+      <button id="pdf" class="flex-1 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">⬇ Download PDF</button>
+      <button id="again" class="flex-1 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">Retake Quiz</button>
+    </div>
+    <p id="pdfmsg" class="text-sm text-center mt-3 min-h-5"></p>
+  </section>
+</main>
+
+<script>
+const BANK=[
+ {q:"Which HTML element holds the page’s main visible content?",a:["<head>","<body>","<meta>","<title>"],c:1},
+ {q:"Which CSS property controls the stacking order of positioned elements?",a:["order","z-index","stack","layer"],c:1},
+ {q:"What does “===” do in JavaScript?",a:["Assigns a value","Compares value only","Compares value and type","Checks for NaN"],c:2},
+ {q:"Which Tailwind class makes an element a flex container?",a:["flex","d-flex","flexbox","display-flex"],c:0},
+ {q:"Which method converts a JSON string into an object?",a:["JSON.stringify()","JSON.parse()","JSON.object()","JSON.decode()"],c:1},
+ {q:"Which CSS unit is relative to the viewport width?",a:["em","rem","vw","px"],c:2},
+ {q:"Which array method returns a new array of items that pass a test?",a:["map()","reduce()","filter()","forEach()"],c:2},
+ {q:"In Bootstrap’s grid, how many columns span a row?",a:["6","10","12","16"],c:2},
+ {q:"Which HTML attribute makes an image accessible to screen readers?",a:["title","alt","src","name"],c:1}
+];
+const TIME=20, L=['A','B','C','D'];
+const $=id=>document.getElementById(id);
+let Q=[],i=0,res=[],t=TIME,timer=null,locked=false;
+const shuffle=a=>{a=[...a];for(let k=a.length-1;k>0;k--){const j=Math.random()*(k+1)|0;[a[k],a[j]]=[a[j],a[k]]}return a};
+
+// theme
+const root=document.documentElement;
+function setTheme(d){root.classList.toggle('dark',d);$('theme').textContent=d?'☀️':'🌙';try{localStorage.setItem('qz-theme',d?'d':'l')}catch(e){}}
+let saved=null;try{saved=localStorage.getItem('qz-theme')}catch(e){}
+setTheme(saved?saved==='d':matchMedia('(prefers-color-scheme: dark)').matches);
+$('theme').onclick=()=>setTheme(!root.classList.contains('dark'));
+
+function show(id){['start','quiz','result'].forEach(s=>$(s).classList.toggle('hidden',s!==id))}
+
+function start(){
+  Q=shuffle(BANK).slice(0,5).map(x=>{const o=x.a.map((t,k)=>({t,ok:k===x.c}));return{q:x.q,o:shuffle(o)}});
+  i=0;res=Q.map(()=>null);show('quiz');render();
+}
+function drawBar(){
+  $('bar').innerHTML=Q.map((_,k)=>{
+    const r=res[k];let c='bg-slate-300 dark:bg-slate-600';
+    if(r)c=r.status==='correct'?'bg-green-500':r.status==='wrong'?'bg-red-500':'bg-amber-400';
+    else if(k===i)c='bg-indigo-500';
+    return `<div class="seg flex-1 h-3 rounded-full ${c}"></div>`}).join('');
+}
+function render(){
+  locked=false;const q=Q[i];
+  $('count').textContent=`Question ${i+1} of ${Q.length}`;
+  $('q').textContent=q.q;$('msg').textContent='';$('next').classList.add('hidden');
+  $('opts').innerHTML='';
+  q.o.forEach((o,k)=>{
+    const b=document.createElement('button');
+    b.className='opt text-left p-3 sm:p-4 rounded-xl border-2 border-slate-200 dark:border-slate-600 hover:border-indigo-400 flex gap-3 items-center';
+    b.innerHTML=`<span class="w-7 h-7 shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-sm font-bold">${L[k]}</span><span></span>`;
+    b.lastChild.textContent=o.t;b.onclick=()=>pick(k);$('opts').appendChild(b);
+  });
+  drawBar();t=TIME;tick();clearInterval(timer);timer=setInterval(()=>{t--;tick();if(t<=0){clearInterval(timer);pick(-1)}},1000);
+}
+function tick(){
+  $('time').textContent=`⏱ ${t}s`;$('tbar').style.width=(t/TIME*100)+'%';
+  $('tbar').className='h-full '+(t<=5?'bg-red-500':t<=10?'bg-amber-400':'bg-indigo-500');
+}
+function pick(k){
+  if(locked)return;locked=true;clearInterval(timer);
+  const q=Q[i],btns=[...$('opts').children],ci=q.o.findIndex(o=>o.ok);
+  const status=k<0?'timeout':q.o[k].ok?'correct':'wrong';
+  res[i]={status,chosen:k<0?null:q.o[k].t,correct:q.o[ci].t};
+  btns.forEach((b,n)=>{
+    b.disabled=true;b.classList.remove('hover:border-indigo-400');
+    if(n===ci)b.classList.add('border-green-500','bg-green-50','dark:bg-green-900/40');
+    else if(n===k)b.classList.add('border-red-500','bg-red-50','dark:bg-red-900/40','shake');
+    else b.classList.add('opacity-50');
+  });
+  $('msg').className='mt-4 text-sm font-medium '+(status==='correct'?'text-green-600 dark:text-green-400':status==='wrong'?'text-red-600 dark:text-red-400':'text-amber-600 dark:text-amber-400');
+  $('msg').textContent=status==='correct'?'✅ Correct!':status==='wrong'?'❌ Not quite — the correct answer is highlighted.':'⌛ Time’s up! The correct answer is highlighted.';
+  drawBar();$('next').textContent=i===Q.length-1?'See Results':'Next →';$('next').classList.remove('hidden');
+}
+$('next').onclick=()=>{if(i<Q.length-1){i++;render()}else finish()};
+const icon={correct:'✅',wrong:'❌',timeout:'⌛'};
+function finish(){
+  show('result');const n=res.filter(r=>r.status==='correct').length,p=Math.round(n/Q.length*100);
+  $('score').textContent=`${n} / ${Q.length}`;
+  $('verdict').textContent=`${p}% — `+(p>=80?'Excellent work!':p>=60?'Good job, keep going!':'Keep practicing, you’ll get there!');
+  $('review').innerHTML='';
+  Q.forEach((q,k)=>{
+    const r=res[k],d=document.createElement('div');
+    d.className='p-3 rounded-xl border border-slate-200 dark:border-slate-600 text-sm';
+    d.innerHTML=`<p class="font-semibold mb-1"></p><p class="text-slate-500 dark:text-slate-400"></p>`;
+    d.children[0].textContent=`${icon[r.status]} ${k+1}. ${q.q}`;
+    d.children[1].textContent=`Your answer: ${r.chosen??'No answer (timed out)'} · Correct: ${r.correct}`;
+    $('review').appendChild(d);
+  });
+}
+$('go').onclick=start;$('again').onclick=start;
+
+$('pdf').onclick=async()=>{
+  const m=$('pdfmsg');m.textContent='';
+  try{
+    const {jsPDF}=window.jspdf,doc=new jsPDF(),W=180;let y=20;
+    const n=res.filter(r=>r.status==='correct').length;
+    doc.setFontSize(20);doc.text('Quizly – Quiz Results',15,y);y+=9;
+    doc.setFontSize(11);doc.text(`Date: ${new Date().toLocaleString()}`,15,y);y+=7;
+    doc.setFontSize(14);doc.text(`Score: ${n} / ${Q.length} (${Math.round(n/Q.length*100)}%)`,15,y);y+=10;
+    const lbl={correct:'Correct',wrong:'Wrong',timeout:'Timed out'};
+    Q.forEach((q,k)=>{
+      const r=res[k];
+      const lines=[...doc.setFontSize(11).splitTextToSize(`${k+1}. ${q.q}`,W),
+        ...doc.splitTextToSize(`Your answer: ${r.chosen??'—'}`,W),
+        ...doc.splitTextToSize(`Correct answer: ${r.correct}   [${lbl[r.status]}]`,W)];
+      if(y+lines.length*6>280){doc.addPage();y=20}
+      doc.setTextColor(r.status==='correct'?0:180,r.status==='correct'?130:0,0);
+      doc.text(lines,15,y);y+=lines.length*6+4;
+    });
+    doc.save('quiz-results.pdf');
+    m.textContent='PDF ready ✔';
+  }catch(e){m.textContent='Couldn’t create the PDF.'}
+};
+</script>
+</body>
+</html>
